@@ -26,13 +26,17 @@ with col3:
 limit = st.slider("Max results", 10, 500, 100)
 
 if st.button("Fetch Predictions"):
+    # Construct query parameters based on user selections
     params = {
         "source": source,
+        # Convert date objects to ISO 8601 strings for the API
         "start_date": datetime.combine(start_date, datetime.min.time()).isoformat(),
         "end_date": datetime.combine(end_date, datetime.max.time()).isoformat(),
         "limit": limit,
     }
+    
     try:
+        # Call the GET endpoint to retrieve historical data
         resp = requests.get(f"{API_URL}/past-predictions", params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
@@ -43,12 +47,7 @@ if st.button("Fetch Predictions"):
             df = pd.DataFrame(data)
             df["is_anomaly"] = df["is_anomaly"].map({True: "Yes", False: "No"})
             df["predicted_hours"] = df["predicted_hours"].round(2)
-            
-            for col in ["timestamp", "start_time", "predicted_end_time"]:
-                if col in df.columns:
-                    df[col] = df[col].astype(str).str.replace("T", " ").str.rstrip("Z")
-            
-            st.success(f"Found {len(df)} predictions")
+            st.success(f"Found {len(df)} predictions.")
             st.dataframe(df, use_container_width=True)
 
             st.subheader("Summary")

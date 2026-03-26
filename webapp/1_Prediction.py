@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import pandas as pd
 import os
-from datetime import datetime
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
@@ -17,6 +16,7 @@ with col2:
 
 mode = st.radio("Prediction Mode", ["Single Prediction", "Batch Prediction (CSV Upload)"], horizontal=True)
 
+# Define categorical feature options
 CLOUD_PROVIDERS = ["AWS", "GCP", "Azure", "IBM", "Oracle", "Alibaba"]
 SERVICES = ["Compute", "Storage", "Database", "AI/ML", "Networking", "Identity", "Analytics", "Security"]
 SEVERITIES = ["Low", "Medium", "High", "Critical"]
@@ -24,6 +24,10 @@ BACKUP_OPTIONS = ["Yes", "No"]
 
 
 def build_feature_form(key_suffix=""):
+    """
+    Helper function to render a Streamlit form for single predictions.
+    Creates inputs for all required features and returns them as a dict.
+    """
     col1, col2 = st.columns(2)
     with col1:
         cloud_provider = st.selectbox("Cloud Provider", CLOUD_PROVIDERS, key=f"cp_{key_suffix}")
@@ -46,33 +50,33 @@ def build_feature_form(key_suffix=""):
 
 if mode == "Single Prediction":
     st.subheader("Fill in incident attributes")
+    
+    # Render form for a single manual prediction
     with st.form("single_form"):
         features = build_feature_form("single")
         submitted = st.form_submit_button("Predict Outage Duration")
 
     if submitted:
+        # Prepare payload and specify source is the webapp
         payload = {"features": [features], "source": "webapp"}
         try:
+            # Make a POST request to the FastAPI Model Service
             resp = requests.post(f"{API_URL}/predict", json=payload, timeout=10)
             resp.raise_for_status()
+            
+            # Extract the first prediction
             result = resp.json()["predictions"][0]
             hours = result["predicted_hours"]
             is_anomaly = result["is_anomaly"]
-            start_time = result.get("start_time")
-            predicted_end = result.get("predicted_end_time")
 
             st.success(f"Predicted Outage Duration: {hours:.2f} Hours")
             if is_anomaly:
-                st.error("Anomaly Detected - Outage exceeds 5 hours!")
+                st.error("Anomaly Detected - Outage exceeds 5 hours.")
             else:
-                st.info("Normal outage duration (under 5 hours)")
+                st.info("Normal outage duration (under 5 hours).")
 
             st.subheader("Prediction Details")
             display = {**features, "Predicted Hours": hours, "Anomaly": "Yes" if is_anomaly else "No", "Model": result["model_version"]}
-            if start_time:
-                display["Start Time"] = start_time.replace("T", " ").replace("Z", "")
-            if predicted_end:
-                display["Predicted End Time"] = predicted_end.replace("T", " ").replace("Z", "")
             st.dataframe(pd.DataFrame([display]))
 
         except requests.exceptions.ConnectionError:
@@ -90,29 +94,29 @@ else:
         st.dataframe(df.head())
 
         if st.button("Predict for All Rows"):
-            required = ["cloud_provider", "service", "severity",
-                        "number_of_customers_affected", "ticket_count", "backup_system_triggered"]
+            required = [
+                "cloud_provider", "service", "severity",
+                "number_of_customers_affected", "ticket_count", "backup_system_triggered",
+            ]
             missing = [c for c in required if c not in df.columns]
             if missing:
                 st.error(f"Missing columns in CSV: {missing}")
             else:
-                features_list = df[required].to_dict(orient="records")
-                payload = {"features": features_list, "source": "webapp"}
+                # Prepare payload for batch prediction
+                payload = {"features": df[required].to_dict(orient="records"), "source": "webapp"}
                 try:
+                    # Call the API to predict multiple rows at once
                     resp = requests.post(f"{API_URL}/predict", json=payload, timeout=30)
                     resp.raise_for_status()
                     preds = resp.json()["predictions"]
 
+                    # Combine predictions back with the original data for display
                     results_df = df[required].copy()
                     results_df["Predicted Hours"] = [round(p["predicted_hours"], 2) for p in preds]
                     results_df["Anomaly"] = ["Yes" if p["is_anomaly"] else "No" for p in preds]
                     results_df["Model Version"] = [p["model_version"] for p in preds]
-                    if "start_time" in preds[0]:
-                        results_df["Start Time"] = [p.get("start_time", "").replace("T", " ").replace("Z", "") for p in preds]
-                    if "predicted_end_time" in preds[0]:
-                        results_df["Predicted End Time"] = [p.get("predicted_end_time", "").replace("T", " ").replace("Z", "") for p in preds]
 
-                    st.success(f"{len(preds)} predictions made!")
+                    st.success(f"{len(preds)} predictions made.")
                     st.dataframe(results_df)
 
                 except requests.exceptions.ConnectionError:

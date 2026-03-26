@@ -1,3 +1,9 @@
+"""
+split_dataset.py — Split a CSV dataset into N files in raw_data/
+
+Usage:
+    python split_dataset.py --input data/cloud_outages_dataset.csv --output data/raw_data --num-files 30
+"""
 import pandas as pd
 import os
 import argparse
