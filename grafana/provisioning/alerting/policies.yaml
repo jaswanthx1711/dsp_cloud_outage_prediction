@@ -1,0 +1,15 @@
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: Data Quality Alerts
+    group_by: ["grafana_folder", "alertname"]
+    routes:
+      - receiver: Data Quality Alerts
+        object_matchers:
+          - ["team", "=", "data-quality"]
+        continue: false
+      - receiver: ML Alerts
+        object_matchers:
+          - ["team", "=", "ml"]
+        continue: false

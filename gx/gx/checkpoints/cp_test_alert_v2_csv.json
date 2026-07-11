@@ -1,0 +1,12 @@
+{
+  "actions": [],
+  "id": "523b5472-2478-46cb-92cd-1d7a4738e201",
+  "name": "cp_test_alert_v2_csv",
+  "result_format": "SUMMARY",
+  "validation_definitions": [
+    {
+      "id": "32a93705-97eb-4ab9-a4f7-517c8e9c3df4",
+      "name": "vd_test_alert_v2_csv"
+    }
+  ]
+}

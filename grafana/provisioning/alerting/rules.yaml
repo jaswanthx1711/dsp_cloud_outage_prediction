@@ -1,0 +1,116 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: Data Quality Alerts
+    folder: DSP Alerts
+    interval: 1m
+    rules:
+      - uid: dq-high-criticality
+        title: High Criticality Ingestion Detected
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: postgres_dsp
+            model:
+              rawSql: "SELECT COUNT(*) AS value FROM ingestion_stats WHERE criticality = 'high' AND timestamp > NOW() - interval '5 minutes'"
+              format: table
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        labels:
+          team: data-quality
+        annotations:
+          summary: "At least one ingestion run in the last 5 minutes was flagged HIGH criticality (missing column or >50% invalid rows)."
+
+      - uid: dq-sustained-invalid-rate
+        title: Sustained High Invalid Row Rate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: postgres_dsp
+            model:
+              rawSql: "SELECT COALESCE(AVG(CASE WHEN total_rows = 0 THEN 0 ELSE invalid_rows::float / total_rows END), 0) * 100 AS value FROM ingestion_stats WHERE timestamp > NOW() - interval '15 minutes'"
+              format: table
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [50] }
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        labels:
+          team: data-quality
+        annotations:
+          summary: "Average invalid-row rate over the last 15 minutes has stayed above 50% — all ingested data has errors."
+
+  - orgId: 1
+    name: ML Alerts
+    folder: DSP Alerts
+    interval: 1m
+    rules:
+      - uid: ml-numeric-drift
+        title: Significant Numeric Feature Drift (system_load_before_outage)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: postgres_dsp
+            model:
+              rawSql: "SELECT ABS(AVG(p.system_load_before_outage) - baseline.stat_mean) / NULLIF(baseline.stat_mean, 0) * 100 AS value FROM predictions p CROSS JOIN (SELECT ts.stat_mean FROM training_stats ts JOIN training_runs tr ON tr.id = ts.training_run_id WHERE tr.is_champion = true AND ts.feature_name = 'system_load_before_outage' LIMIT 1) baseline WHERE p.timestamp > NOW() - interval '15 minutes' GROUP BY baseline.stat_mean"
+              format: table
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [20] }
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        labels:
+          team: ml
+        annotations:
+          summary: "Serving average of system_load_before_outage has drifted more than 20% from the champion model's training baseline."
+
+      - uid: ml-constant-predictions
+        title: Model Outputting Near-Constant Predictions
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: postgres_dsp
+            model:
+              rawSql: "SELECT COALESCE(STDDEV(predicted_hours), 0) AS value FROM predictions WHERE timestamp > NOW() - interval '15 minutes' HAVING COUNT(*) > 5"
+              format: table
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.01] }
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        labels:
+          team: ml
+        annotations:
+          summary: "Predicted-hours standard deviation over the last 15 minutes is near zero — the model may be stuck outputting a constant value."
