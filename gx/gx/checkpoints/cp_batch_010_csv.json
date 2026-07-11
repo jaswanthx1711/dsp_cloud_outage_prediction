@@ -1,0 +1,12 @@
+{
+  "actions": [],
+  "id": "ab554802-6883-41a6-ab94-b94453960442",
+  "name": "cp_batch_010_csv",
+  "result_format": "SUMMARY",
+  "validation_definitions": [
+    {
+      "id": "8067ee94-0f60-4bcc-b34f-33919e4c3dac",
+      "name": "vd_batch_010_csv"
+    }
+  ]
+}

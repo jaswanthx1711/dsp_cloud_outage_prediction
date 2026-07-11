@@ -101,82 +101,70 @@ def ingestion_dag():
     # -----------------------------------------------------------------------
     @task()
     def validate_data(file_info: dict) -> dict:
-        """Run row-level validation + GX v1.x Checkpoint. Return structured stats."""
+        """
+        Run a GX v1.x Checkpoint and derive row-level validity directly from its
+        result (Checkpoint -> ValidationDefinition -> ExpectationSuite result),
+        instead of re-implementing the same checks by hand.
+
+        NOTE: `partial_unexpected_index_list` (GX's per-expectation list of failing
+        row indices) is capped at 20 entries by default. Since raw_data files are
+        always exactly 10 rows (see split_dataset.py), this cap never truncates —
+        every failing row in a batch is captured.
+
+        Only "wrong_type" (system_load_before_outage must parse as numeric) stays
+        as a manual row-level pass: GX's type expectations key off the pandas
+        column dtype, which collapses to `object` once a single bad string lands
+        in an otherwise-numeric column, so GX can't attribute the failure to a
+        specific row for mixed-type JSON-sourced columns.
+        """
         import great_expectations as gx
+        from great_expectations.expectations import (
+            ExpectColumnToExist,
+            ExpectColumnValuesToBeBetween,
+            ExpectColumnValuesToBeInSet,
+            ExpectColumnValuesToNotBeNull,
+        )
 
         data_json = file_info["data_json"]
         columns = file_info["columns"]
         filename = file_info["filename"]
 
         df = pd.read_json(data_json, orient="records")
+        total_rows = len(df)
 
         # ── Schema check (file-level) ─────────────────────────────────────────
         missing_cols = [c for c in REQUIRED_COLUMNS if c not in columns]
         has_schema_error = bool(missing_cols)
 
-        # ── Row-level validation ──────────────────────────────────────────────
+        # Expectation type + column -> our error taxonomy label
+        EXPECTATION_LABELS = {
+            ("expect_column_values_to_not_be_null", None): "null_value",
+            ("expect_column_values_to_be_between", "ticket_count"): "out_of_range",
+            ("expect_column_values_to_be_between", "duration_minutes"): "statistical_outlier",
+            ("expect_column_values_to_be_in_set", "cloud_provider"): "invalid_categorical",
+        }
+
         row_errors: dict[int, list[str]] = {}
+        error_type_counts: dict[str, int] = {}
 
-        for idx, row in df.iterrows():
-            errs: list[str] = []
+        def add_error(idx: int, label: str) -> None:
+            row_errors.setdefault(int(idx), [])
+            if label not in row_errors[int(idx)]:
+                row_errors[int(idx)].append(label)
+            error_type_counts[label] = error_type_counts.get(label, 0) + 1
 
-            # 1. Completeness — null in required column
-            for col in REQUIRED_COLUMNS:
-                if col in df.columns and pd.isna(row.get(col)):
-                    errs.append("null_value")
-                    break
-
-            # 2. Validity — ticket_count out of range
-            if "ticket_count" in df.columns:
-                tc = row.get("ticket_count")
-                try:
-                    if float(tc) < 0:
-                        errs.append("out_of_range")
-                except (TypeError, ValueError):
-                    pass
-
-            # 3. Consistency — invalid cloud_provider
-            if "cloud_provider" in df.columns:
-                cp = row.get("cloud_provider")
-                if isinstance(cp, str) and cp not in VALID_CLOUD_PROVIDERS:
-                    errs.append("invalid_categorical")
-
-            # 4. Type — system_load_before_outage must be numeric
-            if "system_load_before_outage" in df.columns:
-                val = row.get("system_load_before_outage")
-                if val is not None:
+        # ── Manual check: wrong_type (see docstring — GX can't do this per-row) ─
+        if "system_load_before_outage" in df.columns:
+            for idx, val in df["system_load_before_outage"].items():
+                if val is not None and not (isinstance(val, float) and pd.isna(val)):
                     try:
                         float(val)
                     except (TypeError, ValueError):
-                        errs.append("wrong_type")
+                        add_error(idx, "wrong_type")
 
-            # 5. Statistical outlier — duration_minutes
-            if "duration_minutes" in df.columns:
-                dm = row.get("duration_minutes")
-                try:
-                    if float(dm) > 100_000:
-                        errs.append("statistical_outlier")
-                except (TypeError, ValueError):
-                    pass
-
-            if errs:
-                row_errors[int(idx)] = errs
-
-        total_rows = len(df)
-        invalid_rows = len(row_errors)
-        valid_rows = total_rows - invalid_rows
-
-        error_type_counts: dict[str, int] = {}
-        for errs in row_errors.values():
-            for e in errs:
-                error_type_counts[e] = error_type_counts.get(e, 0) + 1
-        if has_schema_error:
-            error_type_counts["missing_column"] = len(missing_cols)
-
-        criticality = compute_criticality(total_rows, invalid_rows, has_schema_error)
-
-        # ── GX v1.x Checkpoint ───────────────────────────────────────────────
+        # ── GX v1.x Checkpoint — source of truth for the other 4 categories ────
         report_url = ""
+        gx_ran_successfully = False
         try:
             context = gx.get_context(mode="file", project_root_dir=GX_ROOT_DIR)
 
@@ -184,27 +172,30 @@ def ingestion_dag():
             asset = datasource.add_dataframe_asset(name=f"batch_{filename}")
             batch_def = asset.add_batch_definition_whole_dataframe(name="whole")
 
-            from great_expectations.expectations import (
-                ExpectColumnToExist,
-                ExpectColumnValuesToBeBetween,
-                ExpectColumnValuesToBeInSet,
-                ExpectColumnValuesToNotBeNull,
-            )
-
             expectations = [ExpectColumnToExist(column=col) for col in REQUIRED_COLUMNS]
-            if "number_of_customers_affected" in columns:
-                expectations.append(
-                    ExpectColumnValuesToNotBeNull(column="number_of_customers_affected")
-                )
+            for col in REQUIRED_COLUMNS:
+                if col in columns:
+                    expectations.append(
+                        ExpectColumnValuesToNotBeNull(column=col, result_format="COMPLETE")
+                    )
             if "ticket_count" in columns:
                 expectations.append(
-                    ExpectColumnValuesToBeBetween(column="ticket_count", min_value=0)
+                    ExpectColumnValuesToBeBetween(
+                        column="ticket_count", min_value=0, result_format="COMPLETE"
+                    )
                 )
             if "cloud_provider" in columns:
                 expectations.append(
                     ExpectColumnValuesToBeInSet(
                         column="cloud_provider",
                         value_set=list(VALID_CLOUD_PROVIDERS),
+                        result_format="COMPLETE",
+                    )
+                )
+            if "duration_minutes" in columns:
+                expectations.append(
+                    ExpectColumnValuesToBeBetween(
+                        column="duration_minutes", max_value=100_000, result_format="COMPLETE"
                     )
                 )
 
@@ -231,7 +222,27 @@ def ingestion_dag():
                     gx.Checkpoint(name=cp_name, validation_definitions=[vd])
                 )
 
-            checkpoint.run(batch_parameters={"dataframe": df})
+            checkpoint_result = checkpoint.run(batch_parameters={"dataframe": df})
+            gx_ran_successfully = True
+
+            # ── Extract row-level failures straight from the Checkpoint result ──
+            for validation_result in checkpoint_result.run_results.values():
+                for exp_result in validation_result.results:
+                    if exp_result.success:
+                        continue
+                    exp_type = exp_result.expectation_config.type
+                    if exp_type == "expect_column_to_exist":
+                        continue  # already covered by has_schema_error
+                    column = exp_result.expectation_config.kwargs.get("column")
+                    label = EXPECTATION_LABELS.get((exp_type, column)) or EXPECTATION_LABELS.get(
+                        (exp_type, None)
+                    )
+                    if not label:
+                        continue
+                    bad_idx = exp_result.result.get("partial_unexpected_index_list") or []
+                    for idx in bad_idx:
+                        add_error(idx, label)
+
             context.build_data_docs()
 
             try:
@@ -244,9 +255,43 @@ def ingestion_dag():
         except Exception as gx_err:
             print(f"[validate_data] GX error (non-fatal): {gx_err}")
 
+        if not gx_ran_successfully:
+            # Fallback so a GX outage doesn't stop the pipeline: apply the same
+            # 4 checks by hand so ingestion can still route good/bad rows.
+            print("[validate_data] GX checkpoint failed — falling back to manual row checks.")
+            for idx, row in df.iterrows():
+                for col in REQUIRED_COLUMNS:
+                    if col in df.columns and pd.isna(row.get(col)):
+                        add_error(idx, "null_value")
+                        break
+                if "ticket_count" in df.columns:
+                    try:
+                        if float(row.get("ticket_count")) < 0:
+                            add_error(idx, "out_of_range")
+                    except (TypeError, ValueError):
+                        pass
+                if "cloud_provider" in df.columns:
+                    cp = row.get("cloud_provider")
+                    if isinstance(cp, str) and cp not in VALID_CLOUD_PROVIDERS:
+                        add_error(idx, "invalid_categorical")
+                if "duration_minutes" in df.columns:
+                    try:
+                        if float(row.get("duration_minutes")) > 100_000:
+                            add_error(idx, "statistical_outlier")
+                    except (TypeError, ValueError):
+                        pass
+
+        if has_schema_error:
+            error_type_counts["missing_column"] = len(missing_cols)
+
+        invalid_rows = len(row_errors)
+        valid_rows = total_rows - invalid_rows
+        criticality = compute_criticality(total_rows, invalid_rows, has_schema_error)
+
         print(
             f"[validate_data] {filename}: total={total_rows}, "
-            f"invalid={invalid_rows}, criticality={criticality}"
+            f"invalid={invalid_rows}, criticality={criticality}, "
+            f"gx_driven={gx_ran_successfully}"
         )
 
         return {

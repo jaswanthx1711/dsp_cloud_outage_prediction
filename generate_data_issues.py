@@ -47,6 +47,7 @@ def inject_errors(df: pd.DataFrame, probability: float) -> pd.DataFrame:
 
     # 5. Type — Wrong data type in numeric column
     type_mask = mask()
+    df["system_load_before_outage"] = df["system_load_before_outage"].astype(object)
     df.loc[type_mask, "system_load_before_outage"] = "NOT_A_NUMBER"
     print(f"[5] Wrong data type in 'system_load_before_outage': {type_mask.sum()} rows")
 

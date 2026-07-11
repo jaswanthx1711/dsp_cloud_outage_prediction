@@ -1,0 +1,136 @@
+{
+  "id": null,
+  "uid": "dsp-data-quality",
+  "title": "Data Quality Monitoring",
+  "tags": ["dsp", "ingestion", "data-quality"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "% Invalid Rows per Ingestion Run",
+      "description": "Trend of invalid-row percentage per ingestion run. Thresholds mirror the DAG's own criticality bands: <10% low, 10-50% medium, >50% high.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "spanNulls": true },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, filename, CASE WHEN total_rows = 0 THEN 0 ELSE (invalid_rows::float / total_rows) * 100 END AS invalid_pct FROM ingestion_stats WHERE $__timeFilter(timestamp) ORDER BY timestamp",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Error Category Trend (last window)",
+      "description": "Row-level error counts per category over time — completeness, validity, consistency, schema, type.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, COALESCE((error_types->>'null_value')::int, 0) AS completeness_null_value, COALESCE((error_types->>'out_of_range')::int, 0) AS validity_out_of_range, COALESCE((error_types->>'invalid_categorical')::int, 0) AS consistency_invalid_categorical, COALESCE((error_types->>'missing_column')::int, 0) AS schema_missing_column, COALESCE((error_types->>'wrong_type')::int, 0) AS type_wrong_type FROM ingestion_stats WHERE $__timeFilter(timestamp) ORDER BY timestamp",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "barchart",
+      "title": "Most Frequent Error Types (selected window)",
+      "description": "Aggregate count per error category across all ingestion runs in the selected time range.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT 'Completeness (null)' AS error_category, SUM(COALESCE((error_types->>'null_value')::int,0)) AS count FROM ingestion_stats WHERE $__timeFilter(timestamp) UNION ALL SELECT 'Validity (out of range)', SUM(COALESCE((error_types->>'out_of_range')::int,0)) FROM ingestion_stats WHERE $__timeFilter(timestamp) UNION ALL SELECT 'Consistency (invalid categorical)', SUM(COALESCE((error_types->>'invalid_categorical')::int,0)) FROM ingestion_stats WHERE $__timeFilter(timestamp) UNION ALL SELECT 'Schema (missing column)', SUM(COALESCE((error_types->>'missing_column')::int,0)) FROM ingestion_stats WHERE $__timeFilter(timestamp) UNION ALL SELECT 'Type (wrong type)', SUM(COALESCE((error_types->>'wrong_type')::int,0)) FROM ingestion_stats WHERE $__timeFilter(timestamp) ORDER BY count DESC",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Ingestion Runs by Criticality",
+      "description": "Count of ingestion runs per criticality level over time — spot spikes in high/medium criticality batches.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "high" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "medium" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+          { "matcher": { "id": "byName", "options": "low" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }] },
+          { "matcher": { "id": "byName", "options": "none" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(timestamp, '1m') AS time, criticality, COUNT(*) AS runs FROM ingestion_stats WHERE $__timeFilter(timestamp) GROUP BY 1, criticality ORDER BY 1",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Recent Ingestion Runs",
+      "description": "Latest ingestion batches for quick inspection during the demo.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT timestamp, filename, total_rows, valid_rows, invalid_rows, criticality FROM ingestion_stats WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 20",
+          "rawQuery": true
+        }
+      ]
+    }
+  ]
+}
