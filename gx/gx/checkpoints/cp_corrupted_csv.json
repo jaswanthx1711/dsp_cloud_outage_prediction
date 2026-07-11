@@ -1,0 +1,12 @@
+{
+  "actions": [],
+  "id": "cd41dc99-901f-4b5c-9ea7-f13101516be8",
+  "name": "cp_corrupted_csv",
+  "result_format": "SUMMARY",
+  "validation_definitions": [
+    {
+      "id": "c6f2eb0a-6c5d-48ef-a37c-eaa69df29007",
+      "name": "vd_corrupted_csv"
+    }
+  ]
+}
