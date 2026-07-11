@@ -28,16 +28,27 @@ x-airflow-common: &airflow-common
     # ── Application env vars forwarded into tasks ─────────────────────────────
     API_URL: http://api:8000
     TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL:-}
+    ML_ALERTS_TEAMS_WEBHOOK_URL: ${ML_ALERTS_TEAMS_WEBHOOK_URL:-}
     POSTGRES_USER: ${POSTGRES_USER}
     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     POSTGRES_DB: ${POSTGRES_DB}
+    DATABASE_URL: ${DATABASE_URL}
+    # ── MLflow (Defense 2) ───────────────────────────────────────────────────
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    MODEL_NAME: ${MODEL_NAME:-cloud_outage_duration}
+    RMSE_PROMOTION_THRESHOLD: ${RMSE_PROMOTION_THRESHOLD:-}
+    INFERENCE_MS_THRESHOLD: ${INFERENCE_MS_THRESHOLD:-50}
+    MIN_NEW_ROWS_FOR_TRAINING: ${MIN_NEW_ROWS_FOR_TRAINING:-50}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./data:/opt/airflow/data
     - ./gx:/opt/airflow/gx
+    - ./model_service:/opt/airflow/model_service
     - airflow_logs:/opt/airflow/logs
   depends_on:
     airflow-db:
+      condition: service_healthy
+    mlflow:
       condition: service_healthy
 
 services:
@@ -126,12 +137,39 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  # ─── MLflow Tracking Server + Model Registry ─────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.19.0
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root mlflow-artifacts:/
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+    ports:
+      - "5001:5000"
+    volumes:
+      - mlflow_data:/mlflow
+      - ./mlflow-artifacts:/mlflow/artifacts
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/health')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
   # ─── Model Service (FastAPI) ─────────────────────────────────────────────────
   api:
     build:
       context: .
       dockerfile: model_service/Dockerfile
     env_file: .env
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: ${MODEL_NAME:-cloud_outage_duration}
     ports:
       - "8000:8000"
     volumes:
@@ -139,6 +177,8 @@ services:
       - ./data:/data
     depends_on:
       db:
+        condition: service_healthy
+      mlflow:
         condition: service_healthy
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
@@ -171,7 +211,38 @@ services:
       - ./gx/gx/uncommitted/data_docs/local_site:/usr/share/nginx/html:ro
     restart: unless-stopped
 
+  # ─── Grafana — data quality + drift/prediction monitoring dashboards ────────
+  grafana:
+    image: grafana/grafana:11.4.0
+    env_file: .env
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ALERTING_ENABLED=true
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      # Grafana's "teams" contact point rejects an empty url at provisioning
+      # time, so fall back to a syntactically valid placeholder when unset.
+      # Alerts won't actually deliver until real webhook URLs are set in .env.
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-https://outlook.office.com/webhook/not-configured}
+      - ML_ALERTS_TEAMS_WEBHOOK_URL=${ML_ALERTS_TEAMS_WEBHOOK_URL:-https://outlook.office.com/webhook/not-configured}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   airflow_postgres_data:
   airflow_logs:
+  mlflow_data:
+  grafana_data:

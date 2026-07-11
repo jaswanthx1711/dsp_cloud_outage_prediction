@@ -16,6 +16,9 @@ numpy==1.26.4
 scikit-learn==1.5.0
 joblib==1.4.2
 
+# ── Model Registry (API service loads the @champion model) ───────────────────
+mlflow==2.19.0
+
 # ── Webapp UI (Streamlit frontend) ────────────────────────────────────────────
 streamlit==1.35.0
 
