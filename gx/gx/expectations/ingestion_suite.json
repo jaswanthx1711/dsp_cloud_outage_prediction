@@ -1,7 +1,7 @@
 {
   "expectations": [
     {
-      "id": "7a0a0b40-e8f4-488a-b9f1-937665ba94fd",
+      "id": "17ac93c0-21c2-4833-ae0c-14627d60234a",
       "kwargs": {
         "column": "cloud_provider"
       },
@@ -9,7 +9,7 @@
       "type": "expect_column_to_exist"
     },
     {
-      "id": "37de516f-0ca1-4d97-b005-e23d35402747",
+      "id": "4d2ff193-9249-4ce7-87b7-00863b24db2d",
       "kwargs": {
         "column": "service"
       },
@@ -17,7 +17,7 @@
       "type": "expect_column_to_exist"
     },
     {
-      "id": "e3e482a9-3188-481b-9e54-122224ccbb67",
+      "id": "4b658024-7069-4605-a98b-03811e3c9d12",
       "kwargs": {
         "column": "severity"
       },
@@ -25,7 +25,7 @@
       "type": "expect_column_to_exist"
     },
     {
-      "id": "09ef1824-a746-42be-95ce-b87048e39ec5",
+      "id": "72bae3d4-6e10-4ead-924d-6a11a6d59519",
       "kwargs": {
         "column": "system_load_before_outage"
       },
@@ -33,7 +33,7 @@
       "type": "expect_column_to_exist"
     },
     {
-      "id": "0e0d3d61-6670-44b3-854c-479aacaf68e0",
+      "id": "c797d7da-f7fc-4d76-84a7-3b588a885e1c",
       "kwargs": {
         "column": "number_of_customers_affected"
       },
@@ -41,7 +41,7 @@
       "type": "expect_column_to_exist"
     },
     {
-      "id": "39cbf142-89ff-47ca-91b6-3c855992d7fb",
+      "id": "04cab930-e2f2-48dd-8190-6f99a8d9a191",
       "kwargs": {
         "column": "ticket_count"
       },
@@ -49,7 +49,7 @@
       "type": "expect_column_to_exist"
     },
     {
-      "id": "58a803cd-8999-4d18-b817-e23dfe51d6af",
+      "id": "0e6f2846-64e9-41a5-8620-b266a3edcccb",
       "kwargs": {
         "column": "backup_system_triggered"
       },
@@ -57,37 +57,104 @@
       "type": "expect_column_to_exist"
     },
     {
-      "id": "b7e225c1-f9bf-4d97-a0fc-e85d5a18a94f",
+      "id": "6778569e-8a7d-4703-a393-374773eb2877",
       "kwargs": {
-        "column": "number_of_customers_affected"
+        "column": "cloud_provider",
+        "result_format": "COMPLETE"
       },
       "meta": {},
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "6f57617c-abee-4bef-8274-1cf5124f89e8",
+      "id": "88e72ead-af09-4e2b-9ec1-8960ca7ce078",
+      "kwargs": {
+        "column": "service",
+        "result_format": "COMPLETE"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "6c732a90-3771-498c-b670-449ec350a164",
+      "kwargs": {
+        "column": "severity",
+        "result_format": "COMPLETE"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "e66cb1f9-86cc-4819-b10d-857498ff174d",
+      "kwargs": {
+        "column": "system_load_before_outage",
+        "result_format": "COMPLETE"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "1174d66f-c086-420b-b8ad-e98b7ce1b5cd",
+      "kwargs": {
+        "column": "number_of_customers_affected",
+        "result_format": "COMPLETE"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "5b76b50d-1995-451b-95b0-8eaf0b7d0531",
       "kwargs": {
         "column": "ticket_count",
-        "min_value": 0.0
+        "result_format": "COMPLETE"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "15d2bf1e-6ac9-44f1-8aef-e2733ee02cac",
+      "kwargs": {
+        "column": "backup_system_triggered",
+        "result_format": "COMPLETE"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "5a05af19-2afd-4ee8-abe2-24f56dd789da",
+      "kwargs": {
+        "column": "ticket_count",
+        "min_value": 0.0,
+        "result_format": "COMPLETE"
       },
       "meta": {},
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "1518f13e-8e8c-4b36-8a95-5230f7be93d3",
+      "id": "1b157bc4-7a80-4af1-a02a-37bf544f0c61",
       "kwargs": {
         "column": "cloud_provider",
+        "result_format": "COMPLETE",
         "value_set": [
-          "IBM",
-          "Alibaba",
-          "Azure",
           "Oracle",
+          "Azure",
           "GCP",
-          "AWS"
+          "AWS",
+          "IBM",
+          "Alibaba"
         ]
       },
       "meta": {},
       "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "76a12c5a-04a0-4ca2-a932-d549e7450fc6",
+      "kwargs": {
+        "column": "duration_minutes",
+        "max_value": 100000.0,
+        "result_format": "COMPLETE"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_be_between"
     }
   ],
   "id": "f3ee00c0-21c7-4554-8719-1eb410f187b6",
