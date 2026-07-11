@@ -54,12 +54,12 @@ from airflow.sdk import dag, task
 from airflow.exceptions import AirflowSkipException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
-# model_service/app is mounted read-only at /opt/airflow/model_service_app so
+# model_service is mounted read-only at /opt/airflow/model_service so
 # the training DAG reuses the exact same feature pipeline the API serves with
 # (see docker-compose.yml). Import it directly rather than duplicating the
 # sklearn Pipeline definition here.
-sys.path.insert(0, "/opt/airflow")
-from model_service_app.model import train_and_evaluate  # noqa: E402
+sys.path.insert(0, "/opt/airflow/model_service")
+from app.model import train_and_evaluate  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -73,7 +73,7 @@ TRACKER_FILE = "/opt/airflow/data/.last_training_timestamp"
 API_URL = os.getenv("API_URL", "http://api:8000")
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 MODEL_NAME = os.getenv("MODEL_NAME", "cloud_outage_duration")
-EXPERIMENT_NAME = "cloud_outage_duration_training"
+EXPERIMENT_NAME = "cloud_outage_duration_training_v2"
 
 MIN_NEW_ROWS_FOR_TRAINING = int(os.getenv("MIN_NEW_ROWS_FOR_TRAINING", "50"))
 INFERENCE_MS_THRESHOLD = float(os.getenv("INFERENCE_MS_THRESHOLD", "50"))
@@ -300,7 +300,7 @@ def training_dag():
         row = cur.fetchone()
         cur.close()
         conn.close()
-        champion_rmse = row[0] if row else None
+        champion_rmse = row[0] if row else -1.0
 
         reasons = []
         latency_ok = candidate_latency < INFERENCE_MS_THRESHOLD
@@ -309,7 +309,7 @@ def training_dag():
                 f"inference_ms_per_row={candidate_latency} >= threshold={INFERENCE_MS_THRESHOLD}"
             )
 
-        if champion_rmse is None:
+        if champion_rmse < 0:
             performance_ok = True
             reasons.append("no existing champion — first training run")
         else:
@@ -404,10 +404,12 @@ def training_dag():
     @task()
     def alert_promotion_failed(evaluation: dict) -> None:
         webhook_url = os.getenv(ML_ALERTS_WEBHOOK_ENV, "")
+        champion_rmse_val = evaluation['champion_rmse']
+        champion_rmse_str = f"{champion_rmse_val:.4f}" if champion_rmse_val >= 0 else "None"
         message_text = (
             f"Candidate v{evaluation['model_version']} NOT promoted. "
-            f"candidate_rmse={evaluation['candidate_rmse']}, "
-            f"champion_rmse={evaluation['champion_rmse']}. Reason: {evaluation['reason']}"
+            f"candidate_rmse={evaluation['candidate_rmse']:.4f}, "
+            f"champion_rmse={champion_rmse_str}. Reason: {evaluation['reason']}"
         )
         print(f"[alert_promotion_failed] {message_text}")
 

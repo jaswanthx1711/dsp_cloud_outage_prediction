@@ -43,7 +43,7 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/airflow/dags
     - ./data:/opt/airflow/data
     - ./gx:/opt/airflow/gx
-    - ./model_service/app:/opt/airflow/model_service_app
+    - ./model_service:/opt/airflow/model_service
     - airflow_logs:/opt/airflow/logs
   depends_on:
     airflow-db:
@@ -145,7 +145,8 @@ services:
       --host 0.0.0.0
       --port 5000
       --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
+      --default-artifact-root mlflow-artifacts:/
+      --artifacts-destination /mlflow/artifacts
       --serve-artifacts
     ports:
       - "5001:5000"
