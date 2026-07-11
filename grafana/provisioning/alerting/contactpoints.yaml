@@ -1,0 +1,18 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: Data Quality Alerts
+    receivers:
+      - uid: data-quality-teams
+        type: teams
+        settings:
+          url: $TEAMS_WEBHOOK_URL
+
+  - orgId: 1
+    name: ML Alerts
+    receivers:
+      - uid: ml-alerts-teams
+        type: teams
+        settings:
+          url: $ML_ALERTS_TEAMS_WEBHOOK_URL

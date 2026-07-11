@@ -97,10 +97,12 @@ def prediction_dag():
     @task()
     def make_predictions(new_files: list[str]) -> None:
         """
-        Read each new validated file and call POST /predict.
+        Read all new validated files, concatenate their rows, and make a
+        single batch POST /predict call for the whole set.
         The API saves predictions to the database with source='scheduled'.
         """
         max_ts = _read_last_ts()
+        frames = []
 
         for fpath in new_files:
             try:
@@ -118,25 +120,37 @@ def prediction_dag():
                     print(f"[make_predictions] No valid rows in {fpath}")
                     continue
 
-                payload = {"features": df_infer.to_dict(orient="records"), "source": "scheduled"}
-
-                resp = http_requests.post(f"{API_URL}/predict", json=payload, timeout=60)
-                resp.raise_for_status()
-
-                preds = resp.json().get("predictions", [])
-                print(
-                    f"[make_predictions] {os.path.basename(fpath)}: "
-                    f"{len(preds)} predictions saved."
-                )
+                frames.append(df_infer)
 
                 file_ts = os.path.getmtime(fpath)
                 if file_ts > max_ts:
                     max_ts = file_ts
 
             except Exception as e:
-                print(f"[make_predictions] Error on {fpath}: {e}")
+                print(f"[make_predictions] Error reading {fpath}: {e}")
 
-        _write_last_ts(max_ts)
+        if not frames:
+            print("[make_predictions] No valid rows across new files — nothing to predict.")
+            _write_last_ts(max_ts)
+            return
+
+        combined = pd.concat(frames, ignore_index=True)
+        payload = {"features": combined.to_dict(orient="records"), "source": "scheduled"}
+
+        try:
+            resp = http_requests.post(f"{API_URL}/predict", json=payload, timeout=120)
+            resp.raise_for_status()
+            preds = resp.json().get("predictions", [])
+            print(
+                f"[make_predictions] Single batch call across {len(frames)} file(s): "
+                f"{len(preds)} predictions saved."
+            )
+            _write_last_ts(max_ts)
+        except Exception as e:
+            # Don't advance the tracker on failure — the batch will be retried next run.
+            print(f"[make_predictions] Batch prediction call failed: {e}")
+            raise
+
         print(f"[make_predictions] Done. Updated last_ts → {max_ts}")
 
     # ── Wiring ───────────────────────────────────────────────────────────────

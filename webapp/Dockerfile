@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ENV PIP_DEFAULT_TIMEOUT=1000
+
 WORKDIR /app
 
 # Copy the single root-level requirements file

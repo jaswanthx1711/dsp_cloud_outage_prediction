@@ -1,5 +1,7 @@
 FROM apache/airflow:3.0.0-python3.12
 
+ENV PIP_DEFAULT_TIMEOUT=1000
+
 USER root
 # Install system deps
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
