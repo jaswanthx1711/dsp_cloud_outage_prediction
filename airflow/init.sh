@@ -14,4 +14,4 @@ airflow connections add postgres_default \
   --conn-uri "$CONN_URI" \
   || echo "Connection already exists — skipping."
 
-echo "[airflow-init] Done ✅"
+echo "[airflow-init] Done"

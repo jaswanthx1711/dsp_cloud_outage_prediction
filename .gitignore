@@ -24,3 +24,13 @@ airflow_logs/
 
 # Model file (regenerated on startup)
 data/model.pkl
+
+# Airflow Simple Auth Manager credentials (generated at init, contains admin password)
+data/passwords.json
+
+# MLflow local artifact store
+mlflow-artifacts/
+mlartifacts/
+
+# Prediction job tracker state
+data/.last_prediction_timestamp

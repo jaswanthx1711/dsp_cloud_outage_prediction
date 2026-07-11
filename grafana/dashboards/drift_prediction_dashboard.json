@@ -1,0 +1,133 @@
+{
+  "id": null,
+  "uid": "dsp-drift-prediction",
+  "title": "Data Drift & Prediction Monitoring",
+  "tags": ["dsp", "ml", "drift", "predictions"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": { "from": "now-2h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Numeric Drift — system_load_before_outage (serving vs. training baseline)",
+      "description": "Live serving average vs. the promoted champion's training-time mean. A growing gap signals input drift.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5, "spanNulls": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "training_baseline" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(timestamp, '5m') AS time, AVG(system_load_before_outage) AS serving_avg FROM predictions WHERE $__timeFilter(timestamp) GROUP BY 1 ORDER BY 1",
+          "rawQuery": true
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawSql": "SELECT generate_series($__timeFrom(), $__timeTo(), interval '5 minutes') AS time, (SELECT ts.stat_mean FROM training_stats ts JOIN training_runs tr ON tr.id = ts.training_run_id WHERE tr.is_champion = true AND ts.feature_name = 'system_load_before_outage' LIMIT 1) AS training_baseline",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Categorical Drift — cloud_provider distribution (serving)",
+      "description": "Share of each cloud_provider value among served predictions over time. Compare shape against the training baseline table below.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "WITH bucketed AS (SELECT $__timeGroup(timestamp, '5m') AS time, cloud_provider FROM predictions WHERE $__timeFilter(timestamp)) SELECT time, cloud_provider, (COUNT(*)::float / SUM(COUNT(*)) OVER (PARTITION BY time)) * 100 AS pct FROM bucketed GROUP BY time, cloud_provider ORDER BY time",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Training Baseline — cloud_provider distribution",
+      "description": "Champion model's training-time category distribution, for visual comparison against the serving distribution above.",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT jsonb_each(ts.category_distribution) AS provider_pct FROM training_stats ts JOIN training_runs tr ON tr.id = ts.training_run_id WHERE tr.is_champion = true AND ts.feature_name = 'cloud_provider'",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Average Predicted Duration (hours) by Model Version",
+      "description": "Model behavior over time — a sudden jump can indicate a bad promotion. Split by model_version to see the before/after effect of a retrain.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": { "unit": "h", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "spanNulls": true } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(timestamp, '5m') AS time, model_version, AVG(predicted_hours) AS avg_predicted_hours FROM predictions WHERE $__timeFilter(timestamp) GROUP BY 1, model_version ORDER BY 1",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Anomaly Rate (% predictions > 5h)",
+      "description": "Share of predictions flagged as anomalies over time. A sudden spike suggests the model is misbehaving, not necessarily that outages got worse.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "postgres", "uid": "postgres_dsp" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "spanNulls": true },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 20 },
+              { "color": "red", "value": 40 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(timestamp, '5m') AS time, (SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END)::float / COUNT(*)) * 100 AS anomaly_pct FROM predictions WHERE $__timeFilter(timestamp) GROUP BY 1 ORDER BY 1",
+          "rawQuery": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "expectations": [
+    {
+      "id": "7a0a0b40-e8f4-488a-b9f1-937665ba94fd",
+      "kwargs": {
+        "column": "cloud_provider"
+      },
+      "meta": {},
+      "type": "expect_column_to_exist"
+    },
+    {
+      "id": "37de516f-0ca1-4d97-b005-e23d35402747",
+      "kwargs": {
+        "column": "service"
+      },
+      "meta": {},
+      "type": "expect_column_to_exist"
+    },
+    {
+      "id": "e3e482a9-3188-481b-9e54-122224ccbb67",
+      "kwargs": {
+        "column": "severity"
+      },
+      "meta": {},
+      "type": "expect_column_to_exist"
+    },
+    {
+      "id": "09ef1824-a746-42be-95ce-b87048e39ec5",
+      "kwargs": {
+        "column": "system_load_before_outage"
+      },
+      "meta": {},
+      "type": "expect_column_to_exist"
+    },
+    {
+      "id": "0e0d3d61-6670-44b3-854c-479aacaf68e0",
+      "kwargs": {
+        "column": "number_of_customers_affected"
+      },
+      "meta": {},
+      "type": "expect_column_to_exist"
+    },
+    {
+      "id": "39cbf142-89ff-47ca-91b6-3c855992d7fb",
+      "kwargs": {
+        "column": "ticket_count"
+      },
+      "meta": {},
+      "type": "expect_column_to_exist"
+    },
+    {
+      "id": "58a803cd-8999-4d18-b817-e23dfe51d6af",
+      "kwargs": {
+        "column": "backup_system_triggered"
+      },
+      "meta": {},
+      "type": "expect_column_to_exist"
+    },
+    {
+      "id": "b7e225c1-f9bf-4d97-a0fc-e85d5a18a94f",
+      "kwargs": {
+        "column": "number_of_customers_affected"
+      },
+      "meta": {},
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "6f57617c-abee-4bef-8274-1cf5124f89e8",
+      "kwargs": {
+        "column": "ticket_count",
+        "min_value": 0.0
+      },
+      "meta": {},
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "1518f13e-8e8c-4b36-8a95-5230f7be93d3",
+      "kwargs": {
+        "column": "cloud_provider",
+        "value_set": [
+          "IBM",
+          "Alibaba",
+          "Azure",
+          "Oracle",
+          "GCP",
+          "AWS"
+        ]
+      },
+      "meta": {},
+      "type": "expect_column_values_to_be_in_set"
+    }
+  ],
+  "id": "f3ee00c0-21c7-4554-8719-1eb410f187b6",
+  "meta": {
+    "great_expectations_version": "1.3.10"
+  },
+  "name": "ingestion_suite",
+  "notes": null
+}

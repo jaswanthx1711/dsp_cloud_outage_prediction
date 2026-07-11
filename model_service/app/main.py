@@ -5,6 +5,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
+import mlflow
+from mlflow import MlflowClient
+from mlflow.exceptions import MlflowException
+
 from app.database import get_db, Base, engine, Prediction
 from app.schemas import (
     BatchPredictionRequest, BatchPredictionResponse,
@@ -16,27 +20,51 @@ model_state = {"model": None, "version": "v1.0"}
 
 DATASET_PATH = "/data/cloud_outages_dataset.csv"
 
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+MODEL_NAME = os.getenv("MODEL_NAME", "cloud_outage_duration")
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+
+def load_champion_from_registry():
+    """
+    Try to load the @champion-aliased model from the MLflow model registry.
+    Returns (model, version) or (None, None) if no champion has been
+    promoted yet (e.g. the training DAG hasn't run a first successful pass).
+    """
+    try:
+        model = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}@champion")
+        client = MlflowClient()
+        mv = client.get_model_version_by_alias(MODEL_NAME, "champion")
+        return model, mv.version
+    except (MlflowException, OSError) as e:
+        print(f"[mlflow] No champion model available yet: {e}")
+        return None, None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan event handler for the FastAPI application.
-    It creates database tables and loads/trains the model on startup.
+    Creates database tables, then tries to load the current @champion model
+    from the MLflow registry. If no champion has been promoted yet (first
+    ever startup, before the training DAG has run), falls back to the local
+    bootstrap model so the API is usable immediately.
     """
     # Create database tables if they do not exist
     Base.metadata.create_all(bind=engine)
-    
-    # Attempt to load the pre-trained model
-    model, version = load_model()
+
+    model, version = load_champion_from_registry()
     if model is None:
-        # If no model is found, train one using the default dataset path
-        if os.path.exists(DATASET_PATH):
+        # Bootstrap fallback: load or train a local model from the static
+        # dataset so the API works before any training DAG run exists.
+        model, version = load_model()
+        if model is None and os.path.exists(DATASET_PATH):
             model = train_and_save(DATASET_PATH)
-            version = "v1.0"
-            
+            version = "bootstrap-v1"
+
     # Update global model state
     model_state["model"] = model
-    model_state["version"] = version
+    model_state["version"] = str(version) if version else "unknown"
     yield
 
 
@@ -46,6 +74,22 @@ app = FastAPI(title="Cloud Outage Prediction API", version="1.0.0", lifespan=lif
 @app.get("/health")
 def health():
     return {"status": "healthy", "model_loaded": model_state["model"] is not None}
+
+
+@app.post("/reload-model")
+def reload_model():
+    """
+    Reload the current @champion model from the MLflow registry without
+    restarting the container. Called by the training DAG's
+    notify_api_reload task after a successful promotion.
+    """
+    model, version = load_champion_from_registry()
+    if model is None:
+        raise HTTPException(status_code=404, detail="No champion model found in MLflow registry")
+
+    model_state["model"] = model
+    model_state["version"] = str(version)
+    return {"status": "reloaded", "model_version": model_state["version"]}
 
 
 @app.post("/predict", response_model=BatchPredictionResponse)
